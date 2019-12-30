@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29613.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Torizo", "Torizo.csproj", "{572747B7-07CE-468F-B2AC-A1365804FE75}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{572747B7-07CE-468F-B2AC-A1365804FE75}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{572747B7-07CE-468F-B2AC-A1365804FE75}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{572747B7-07CE-468F-B2AC-A1365804FE75}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{572747B7-07CE-468F-B2AC-A1365804FE75}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F8E534FD-A03B-4EA8-BA1C-8893E48B99AD}
+	EndGlobalSection
+EndGlobal
