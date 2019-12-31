@@ -106,7 +106,6 @@ namespace Torizo
         private void ReadRoom(uint roomOffset)
         {
             Room room = new Room();
-            room.DoorList = new List<DoorData>();
 
             using BinaryReader reader = new BinaryReader(new MemoryStream(loadedROM));
 
@@ -163,26 +162,50 @@ namespace Torizo
                 // TESTING ONLY: Load level data pointer
                 uint levelDataPtr = currentRoomState.LevelData.ToPointer();
 
-                //Lunar.LunarCompression.LoadLunarDll();
-
                 Lunar.LunarCompression.OpenFile(loadedROMPath, FileAccess.Read);
                 byte[] decompressedLevelData = Lunar.LunarCompression.Decompress(levelDataPtr);
-                byte[] decompressedLevelData2 = Lunar.LunarCompression.DecompressNew(loadedROMPath, levelDataPtr);
+                using BinaryReader levelDataReader = new BinaryReader(new FileStream(loadedROMPath, FileMode.Open));
+                levelDataReader.BaseStream.Seek(levelDataPtr, SeekOrigin.Begin);
+                byte[] decompressedLevelData2 = Lunar.LunarCompression.DecompressNew(levelDataReader.ReadBytes(ushort.MaxValue));
 
                 bool same = true;
-                for (int i = 0; i < Math.Min(decompressedLevelData.Length, decompressedLevelData2.Length); ++i)
+                if (decompressedLevelData.Length != decompressedLevelData2.Length)
                 {
-                    if (decompressedLevelData[i] != decompressedLevelData2[i])
-                        same = false;
+                    same = false;
+                }
+                else
+                {
+                    for (int i = 0; i < Math.Min(decompressedLevelData.Length, decompressedLevelData2.Length); ++i)
+                    {
+                        if (decompressedLevelData[i] != decompressedLevelData2[i])
+                            same = false;
+                    }
                 }
 
-                if (same)
+                //if (same)
+                //    MessageBox.Show("HOORAY!");
+
+                byte[] recompressedLevelData = Lunar.LunarCompression.Recompress(decompressedLevelData);
+                byte[] recompressedLevelData2 = Lunar.LunarCompression.RecompressNew(decompressedLevelData2);
+
+                byte[] derecompressed = Lunar.LunarCompression.DecompressNew(recompressedLevelData2);
+
+                bool same2 = true;
+                if (derecompressed.Length != decompressedLevelData2.Length)
+                {
+                    same2 = false;
+                }
+
+                for (int i = 0; i < Math.Min(derecompressed.Length, decompressedLevelData2.Length); ++i)
+                {
+                    if (derecompressed[i] != decompressedLevelData2[i])
+                        same2 = false;
+                }
+
+                if (same2)
                     MessageBox.Show("HOORAY!");
-
-                //Lunar.LunarCompression.UnloadLunarDll();
-
             }
-            
+
 
             // DoorOut gets converted into pointer to door data (pointer table pointing to actual door data)
             BankedAddress doorListPointer;
@@ -193,6 +216,7 @@ namespace Torizo
             //DoorLabel.Caption = doorDataOffset.ToString("X6");
 
             // get the pointers from the current location
+            room.DoorList = new List<DoorData>();
             reader.BaseStream.Seek(doorListPointer.ToPointer() + romHeaderOffset, SeekOrigin.Begin);
             while (true)
             {
