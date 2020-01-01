@@ -93,7 +93,7 @@ namespace Torizo.Lunar
         // I intend to entirely replace Lunar Compress with my own code at some point,
         // since FuSoYa refuses to release his source code. FuSoYa my dude, you've done some incredible work,
         // but closed-source is the antithesis of what the game hacking/modding community should be about.
-        public static byte[] DecompressNew(byte[] source, ushort maxDataSize = ushort.MaxValue)
+        public static byte[] DecompressNew(byte[] source, int maxDataSize = int.MaxValue)
         {
             List<byte> output = new List<byte>();
 
@@ -230,7 +230,7 @@ namespace Torizo.Lunar
                 }
             }
 
-            //uint compressedDataSize = (uint)reader.BaseStream.Position - startAddress;
+            uint compressedDataSize = (uint)reader.BaseStream.Position;
             return output.ToArray();
         }
 

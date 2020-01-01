@@ -154,13 +154,15 @@ namespace Torizo
 
     public struct LevelData
     {
-
+        public ushort Header;
+        public Tile[,] TileLayer1;
+        public Tile[,] TileLayer2;
     }
 
     public struct Room
     {
         public RoomHeader Header;
-        public List<RoomState> StateList;
+        public List<((ushort StateCode, byte[] StateParams) StateHeader, RoomState StateData)> StateInfo;
         public List<DoorData> DoorList;
         public PLM PLM;
         public LevelData LevelData;
