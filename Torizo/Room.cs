@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -156,6 +157,7 @@ namespace Torizo
     {
         public ushort Header;
         public Tile[,] TileLayer1;
+        public byte[,] BtsData;
         public Tile[,] TileLayer2;
     }
 
@@ -166,5 +168,173 @@ namespace Torizo
         public List<DoorData> DoorList;
         public PLM PLM;
         public LevelData LevelData;
+
+        public static Room ReadRoom(uint roomOffset)
+        {
+            Room room = new Room();
+
+            using BinaryReader reader = new BinaryReader(new MemoryStream(MainWindow.LoadedROM));
+
+            // read room header
+            reader.BaseStream.Seek(roomOffset + MainWindow.RomHeaderOffset, SeekOrigin.Begin);
+            GCHandle roomHeaderHandle = GCHandle.Alloc(reader.ReadBytes(Marshal.SizeOf(typeof(RoomHeader))), GCHandleType.Pinned);
+            RoomHeader currentRoomHeader = (RoomHeader)Marshal.PtrToStructure(roomHeaderHandle.AddrOfPinnedObject(), typeof(RoomHeader));
+            roomHeaderHandle.Free();
+
+            room.Header = currentRoomHeader;
+
+            // read room state list
+            var StateHeaders = new List<(ushort StateCode, byte[] StateParams)>();
+            while (true)
+            {
+                ushort stateCode = reader.ReadUInt16();
+
+                // I think the "Standard" state code should always be the last one in the list?
+                if (stateCode == 0xE5E6)
+                {
+                    StateHeaders.Add((stateCode, new byte[] { }));
+                    break;
+                }
+
+                switch (stateCode)
+                {
+                    case 0xE5EB:
+                        StateHeaders.Add((stateCode, reader.ReadBytes(4)));
+                        break;
+
+                    case 0xE612:
+                    case 0xE629:
+                        StateHeaders.Add((stateCode, reader.ReadBytes(3)));
+                        break;
+
+                    case 0xE5FF:
+                    case 0xE640:
+                    case 0xE652:
+                    case 0xE669:
+                    case 0xE678:
+                        StateHeaders.Add((stateCode, reader.ReadBytes(2)));
+                        break;
+                }
+            }
+
+            // read room state data
+            room.StateInfo = new List<((ushort StateCode, byte[] StateParams) StateHeader, RoomState StateData)>();
+            for (int stateNum = 0; stateNum < StateHeaders.Count; ++stateNum)
+            {
+                GCHandle roomStateHandle = GCHandle.Alloc(reader.ReadBytes(Marshal.SizeOf(typeof(RoomState))), GCHandleType.Pinned);
+                RoomState currentRoomState = (RoomState)Marshal.PtrToStructure(roomStateHandle.AddrOfPinnedObject(), typeof(RoomState));
+                roomStateHandle.Free();
+
+                room.StateInfo.Add((StateHeaders[stateNum], currentRoomState));
+            }
+
+            // DoorOut gets converted into pointer to door data (pointer table pointing to actual door data)
+            BankedAddress doorListPointer;
+            doorListPointer.Bank = 0x8F;
+            doorListPointer.Offset = currentRoomHeader.DoorOut;
+
+            // make a copy of the pointer to the pointer table for door data
+            //DoorLabel.Caption = doorDataOffset.ToString("X6");
+
+            // get the pointers from the current location
+            room.DoorList = new List<DoorData>();
+            reader.BaseStream.Seek(doorListPointer.ToPointer() + MainWindow.RomHeaderOffset, SeekOrigin.Begin);
+            while (true)
+            {
+                ushort doorPointer = reader.ReadUInt16();
+
+                // if less than 0x8000, is not a valid door pointer, we've reached the end of the list
+                if (doorPointer < 0x8000)
+                    break;
+
+                BankedAddress currentDoorPointer;
+                currentDoorPointer.Bank = 0x83;
+                currentDoorPointer.Offset = doorPointer;
+
+                // read door data from pointer
+                long oldPos = reader.BaseStream.Position;
+                reader.BaseStream.Seek(currentDoorPointer.ToPointer() + MainWindow.RomHeaderOffset, SeekOrigin.Begin);
+                GCHandle doorHandle = GCHandle.Alloc(reader.ReadBytes(Marshal.SizeOf(typeof(DoorData))), GCHandleType.Pinned);
+                DoorData currentDoorData = (DoorData)Marshal.PtrToStructure(doorHandle.AddrOfPinnedObject(), typeof(DoorData));
+                doorHandle.Free();
+                reader.BaseStream.Seek(oldPos, SeekOrigin.Begin);
+
+                room.DoorList.Add(currentDoorData);
+            }
+
+            return room;
+        }
+
+        public static LevelData ReadLevel(Room room, int stateIndex = 0)
+        {
+            RoomState currentRoomState = room.StateInfo[stateIndex].StateData;
+            uint levelDataPtr = currentRoomState.LevelData.ToPointer();
+
+            //Lunar.LunarCompression.OpenFile(loadedROMPath, FileAccess.Read);
+            //byte[] decompressedLevelData = Lunar.LunarCompression.Decompress(levelDataPtr);
+            //Lunar.LunarCompression.CloseFile();
+
+            using BinaryReader reader = new BinaryReader(new MemoryStream(MainWindow.LoadedROM));
+            reader.BaseStream.Seek(levelDataPtr, SeekOrigin.Begin);
+            byte[] decompressedLevelData = Lunar.LunarCompression.DecompressNew(reader.ReadBytes(ushort.MaxValue), ushort.MaxValue);
+
+            using BinaryReader levelReader = new BinaryReader(new MemoryStream(decompressedLevelData));
+            LevelData levelData;
+            levelData.Header = levelReader.ReadUInt16();
+            int tileCount = (levelData.Header / 2);
+            int tileCountX = room.Header.Width * 16;
+            int tileCountY = room.Header.Height * 16;
+
+            int tilesLoaded = 0;
+            levelData.TileLayer1 = new Tile[tileCountX, tileCountY];
+            for (int tileY = 0; tileY < tileCountY; ++tileY)
+            {
+                for (int tileX = 0; tileX < tileCountX; ++tileX)
+                {
+                    levelData.TileLayer1[tileX, tileY].BlockID = levelReader.ReadByte();
+                    levelData.TileLayer1[tileX, tileY].PatternByte = levelReader.ReadByte();
+                    ++tilesLoaded;
+                }
+            }
+
+            // If we haven't reached the end of the level data, read the BTS data
+            if (levelReader.BaseStream.Position + tileCount < levelReader.BaseStream.Length)
+            {
+                levelData.BtsData = new byte[tileCountX, tileCountY];
+                for (int tileY = 0; tileY < tileCountY; ++tileY)
+                {
+                    for (int tileX = 0; tileX < tileCountX; ++tileX)
+                    {
+                        levelData.BtsData[tileX, tileY] = levelReader.ReadByte();
+                        ++tilesLoaded;
+                    }
+                }
+            }
+            else
+            {
+                levelData.BtsData = new byte[0, 0];
+            }
+
+            // If we still haven't reached the end of the level data, read layer 2
+            if ((levelData.TileLayer1.Length * 2) + levelData.BtsData.Length + (tileCount * 2) <= levelReader.BaseStream.Length)
+            {
+                levelData.TileLayer2 = new Tile[tileCountX, tileCountY];
+                for (int tileY = 0; tileY < tileCountY; ++tileY)
+                {
+                    for (int tileX = 0; tileX < tileCountX; ++tileX)
+                    {
+                        levelData.TileLayer2[tileX, tileY].BlockID = levelReader.ReadByte();
+                        levelData.TileLayer2[tileX, tileY].PatternByte = levelReader.ReadByte();
+                        ++tilesLoaded;
+                    }
+                }
+            }
+            else
+            {
+                levelData.TileLayer2 = new Tile[0, 0];
+            }
+
+            return levelData;
+        }
     }
 }

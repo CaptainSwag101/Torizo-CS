@@ -5,20 +5,34 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Torizo"
         mc:Ignorable="d"
-        Title="Torizo" Height="450" Width="800">
+        Title="Torizo" Height="450" Width="800" MinHeight="450" MinWidth="800" SnapsToDevicePixels="True">
     <Grid>
-        <DockPanel x:Name="dock_Main" LastChildFill="True" Margin="0,0,0,28">
-            <ScrollViewer HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Visible">
-                <Image x:Name="drawrect_LevelEditor"/>
-            </ScrollViewer>
+        <Menu VerticalAlignment="Top" Height="26">
             
+        </Menu>
+        <DockPanel x:Name="dock_Main" Margin="0,26,0,28" LastChildFill="True">
+            <ScrollViewer DockPanel.Dock="Right" Width="200" MinWidth="200">
+                <Grid>
+                    <Label Content="Room:" Height="26" VerticalAlignment="Top" HorizontalAlignment="Left" Width="50" Margin="0,10,0,0"/>
+                    <ComboBox x:Name="roomSelect_ComboBox" Height="26" Margin="55,10,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="120"
+                              SelectionChanged="roomSelect_ComboBox_SelectionChanged"/>
+                    <Label Content="State:" HorizontalAlignment="Left" Margin="0,41,0,0" VerticalAlignment="Top"/>
+                    <ComboBox x:Name="stateSelect_ComboBox" Height="26" Margin="55,41,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="120"
+                              SelectionChanged="stateSelect_ComboBox_SelectionChanged"/>
+                </Grid>
+            </ScrollViewer>
+            <ScrollViewer DockPanel.Dock="Top" HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Visible">
+                <Image x:Name="roomEditor_OutputImage" SnapsToDevicePixels="True" Stretch="Uniform"/>
+            </ScrollViewer>
+
         </DockPanel>
-        <StatusBar x:Name="status_Main" VerticalAlignment="Bottom" Height="28">
+        <StatusBar x:Name="status_Main" Height="28" VerticalAlignment="Bottom" >
             <Slider x:Name="slider_Zoom" Width="120" Minimum="25" Value="100" Maximum="300" LargeChange="25" SmallChange="1"
                     TickFrequency="25" TickPlacement="BottomRight" IsSnapToTickEnabled="True"
                     Foreground="#FF808080" ValueChanged="slider_Zoom_ValueChanged"/>
             <TextBlock Text="Zoom:"/>
             <TextBlock x:Name="statustext_Zoom" Text="100%"/>
+            <TextBlock x:Name="statustext_EnabledLayers" Text="Visible Layers:"/>
         </StatusBar>
     </Grid>
 </Window>

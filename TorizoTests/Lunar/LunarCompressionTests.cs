@@ -24,10 +24,10 @@ namespace Torizo.Lunar.Tests
                 byte[] compressedData = LunarCompression.RecompressNew(fileData);
                 byte[] decompressedData = LunarCompression.DecompressNew(compressedData);
 
-                Assert.AreEqual(fileData.Length, decompressedData.Length);
+                Assert.AreEqual(fileData.Length, decompressedData.Length, $"Data length differs. Should be {fileData.Length} bytes long but was actually {decompressedData.Length} bytes long.");
 
                 for (int i = 0; i < Math.Min(fileData.Length, decompressedData.Length); ++i)
-                    Assert.AreEqual(fileData[i], decompressedData[i]);
+                    Assert.AreEqual(fileData[i], decompressedData[i], $"Data differs at position {i}. Expected <{fileData[i]}> but got <{decompressedData[i]}>.");
             }
         }
     }

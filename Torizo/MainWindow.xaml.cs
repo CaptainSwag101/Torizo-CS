@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -13,8 +14,10 @@ using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using SkiaSharp;
 
 namespace Torizo
 {
@@ -23,35 +26,84 @@ namespace Torizo
     /// </summary>
     public partial class MainWindow : Window
     {
+        [Flags]
+        private enum RoomLayers
+        {
+            TileLayer1 = 1,
+            TileLayer2 = 2,
+            BtsLayer = 4,
+            Enemies = 8,
+        }
+
         private delegate void UpdateDrawRectDelegate();
 
-        private byte[] loadedROM;
-        private string loadedROMPath = "";
-        private ushort romHeaderOffset;
+        public static byte[] LoadedROM;
+        public static string LoadedROMPath = "";
+        public static ushort RomHeaderOffset;
 
-        private List<Room> RoomList = new List<Room>();
+        private Room currentRoom;
+        private int currentRoomState;
+        private LevelData currentLevelData;
+        private RoomLayers layersToDraw = RoomLayers.TileLayer1 | RoomLayers.TileLayer2 | RoomLayers.BtsLayer | RoomLayers.Enemies;
 
         private double levelEditorWidth = 0d, levelEditorHeight = 0d;
         private double zoomScale = 1.0d;
         private double refreshRate = 60d;
 
-        private DrawingImage roomDrawing;
+        private BitmapImage roomRenderOutput;
         private Timer screenRefreshTimer = new Timer();
+
+        private static RoutedCommand toggleLayer1Hotkey = new RoutedCommand();
+        private static RoutedCommand toggleLayer2Hotkey = new RoutedCommand();
+        private static RoutedCommand toggleBtsLayerHotkey = new RoutedCommand();
+        private static RoutedCommand toggleEnemyLayerHotkey = new RoutedCommand();
 
 
         public MainWindow()
         {
             InitializeComponent();
 
+            // Set up hotkey shortcuts
+            toggleLayer1Hotkey.InputGestures.Add(new KeyGesture(Key.F1));
+            toggleLayer2Hotkey.InputGestures.Add(new KeyGesture(Key.F2));
+            toggleBtsLayerHotkey.InputGestures.Add(new KeyGesture(Key.F3));
+            toggleEnemyLayerHotkey.InputGestures.Add(new KeyGesture(Key.F4));
+            CommandBindings.Add(new CommandBinding(toggleLayer1Hotkey, ToggleLayer1));
+            CommandBindings.Add(new CommandBinding(toggleLayer2Hotkey, ToggleLayer2));
+            CommandBindings.Add(new CommandBinding(toggleBtsLayerHotkey, ToggleBtsLayer));
+            CommandBindings.Add(new CommandBinding(toggleEnemyLayerHotkey, ToggleEnemyLayer));
+            UpdateVisibleLayersStatus();
+
+
+            // This will sharpen the pixels when the system tries to place the image on a subpixel boundary,
+            // but it has weird jagged edges and inconsistent scaling.
+            //RenderOptions.SetBitmapScalingMode(roomEditor_OutputImage, BitmapScalingMode.NearestNeighbor);
+
+
+            // Load the ROM image
             Microsoft.Win32.OpenFileDialog openROMDialog = new Microsoft.Win32.OpenFileDialog();
             openROMDialog.Filter = "SNES ROM files (*.sfc;*.smc)|*.sfc;*.smc|All files|*.*";
             openROMDialog.ShowDialog();
 
             if (string.IsNullOrWhiteSpace(openROMDialog.FileName))
+            {
+                MessageBox.Show("Must specify a Super Metroid ROM file.");
+                Application.Current.Shutdown();
                 return;
-
+            }
             LoadROM(openROMDialog.FileName);
 
+            // Populate room offset list
+            using StreamReader mdbStream = new StreamReader(new FileStream(@"Resources\mdb.txt", FileMode.Open, FileAccess.Read, FileShare.Read), Encoding.ASCII);
+            while (mdbStream.BaseStream.Position < mdbStream.BaseStream.Length)
+            {
+                string line = mdbStream.ReadLine();
+                if (!string.IsNullOrWhiteSpace(line))
+                    roomSelect_ComboBox.Items.Add(line);
+            }
+            roomSelect_ComboBox.SelectedIndex = 0;
+
+            // Set up drawing routines
             screenRefreshTimer.Interval = (1d / refreshRate) * 1000; // (refreshRate) frames per second
             screenRefreshTimer.AutoReset = true;
             screenRefreshTimer.Elapsed += timer_ScreenRefresh_Elapsed;
@@ -60,24 +112,25 @@ namespace Torizo
 
         private void LoadROM(string romPath)
         {
-            loadedROMPath = romPath;
-            loadedROM = File.ReadAllBytes(loadedROMPath);
+            LoadedROMPath = romPath;
+            LoadedROM = File.ReadAllBytes(LoadedROMPath);
 
-            using BinaryReader reader = new BinaryReader(new MemoryStream(loadedROM));
+            using BinaryReader reader = new BinaryReader(new MemoryStream(LoadedROM));
 
             // Check if ROM is headered or unheadered
-            if (loadedROM.Length % (short.MaxValue + 1) == 0)
-                romHeaderOffset = 0;    // unheadered
+            if (LoadedROM.Length % (short.MaxValue + 1) == 0)
+                RomHeaderOffset = 0;    // unheadered
             else
-                romHeaderOffset = 512;  // headered
+                RomHeaderOffset = 512;  // headered
 
-            reader.BaseStream.Seek(romHeaderOffset + 0x7FD9, SeekOrigin.Begin);
+            reader.BaseStream.Seek(RomHeaderOffset + 0x7FD9, SeekOrigin.Begin);
             byte romRegion = reader.ReadByte();
 
             // check if PAL
             if (romRegion > 2)
             {
                 MessageBox.Show("This rom is PAL and will not work properly with Torizo.", "PAL ROM", MessageBoxButton.OK, MessageBoxImage.Error);
+                Application.Current.Shutdown();
                 return;
             }
 
@@ -98,206 +151,143 @@ namespace Torizo
                 // hide RoomVar menu
             }
 
-            // Temporary, for testing only
-            ReadRoom(0x0791F8);
+
+
+            // TODO: THIS IS UNFINISHED!!!
+
+
+
         }
 
-        private void ReadRoom(uint roomOffset)
+        private void DrawRoom(Room room, LevelData levelData)
         {
-            Room room = new Room();
+            if (room.Header.Height == 0 || room.Header.Width == 0 || levelData.Header == 0)
+                return;
 
-            using BinaryReader reader = new BinaryReader(new MemoryStream(loadedROM));
-
-            // read room header
-            reader.BaseStream.Seek(roomOffset + romHeaderOffset, SeekOrigin.Begin);
-            GCHandle roomHeaderHandle = GCHandle.Alloc(reader.ReadBytes(Marshal.SizeOf(typeof(RoomHeader))), GCHandleType.Pinned);
-            RoomHeader currentRoomHeader = (RoomHeader)Marshal.PtrToStructure(roomHeaderHandle.AddrOfPinnedObject(), typeof(RoomHeader));
-            roomHeaderHandle.Free();
-
-            room.Header = currentRoomHeader;
-
-            // read room state list
-            var StateHeaders = new List<(ushort StateCode, byte[] StateParams)>();
-            while (true)
-            {
-                ushort stateCode = reader.ReadUInt16();
-
-                // I think the "Standard" state code should always be the last one in the list?
-                if (stateCode == 0xE5E6)
-                {
-                    StateHeaders.Add((stateCode, new byte[] { }));
-                    break;
-                }
-
-                switch (stateCode)
-                {
-                    case 0xE5EB:
-                        StateHeaders.Add((stateCode, reader.ReadBytes(4)));
-                        break;
-
-                    case 0xE612:
-                    case 0xE629:
-                        StateHeaders.Add((stateCode, reader.ReadBytes(3)));
-                        break;
-
-                    case 0xE5FF:
-                    case 0xE640:
-                    case 0xE652:
-                    case 0xE669:
-                    case 0xE678:
-                        StateHeaders.Add((stateCode, reader.ReadBytes(2)));
-                        break;
-                }
-            }
-
-            // read room state data
-            room.StateInfo = new List<((ushort StateCode, byte[] StateParams) StateHeader, RoomState StateData)>();
-            for (int stateNum = 0; stateNum < StateHeaders.Count; ++stateNum)
-            {
-                GCHandle roomStateHandle = GCHandle.Alloc(reader.ReadBytes(Marshal.SizeOf(typeof(RoomState))), GCHandleType.Pinned);
-                RoomState currentRoomState = (RoomState)Marshal.PtrToStructure(roomStateHandle.AddrOfPinnedObject(), typeof(RoomState));
-                roomStateHandle.Free();
-
-                room.StateInfo.Add((StateHeaders[stateNum], currentRoomState));
-            }
-
-            // DoorOut gets converted into pointer to door data (pointer table pointing to actual door data)
-            BankedAddress doorListPointer;
-            doorListPointer.Bank = 0x8F;
-            doorListPointer.Offset = currentRoomHeader.DoorOut;
-
-            // make a copy of the pointer to the pointer table for door data
-            //DoorLabel.Caption = doorDataOffset.ToString("X6");
-
-            // get the pointers from the current location
-            room.DoorList = new List<DoorData>();
-            reader.BaseStream.Seek(doorListPointer.ToPointer() + romHeaderOffset, SeekOrigin.Begin);
-            while (true)
-            {
-                ushort doorPointer = reader.ReadUInt16();
-
-                // if less than 0x8000, is not a valid door pointer, we've reached the end of the list
-                if (doorPointer < 0x8000)
-                    break;
-
-                BankedAddress currentDoorPointer;
-                currentDoorPointer.Bank = 0x83;
-                currentDoorPointer.Offset = doorPointer;
-
-                // read door data from pointer
-                long oldPos = reader.BaseStream.Position;
-                reader.BaseStream.Seek(currentDoorPointer.ToPointer() + romHeaderOffset, SeekOrigin.Begin);
-                GCHandle doorHandle = GCHandle.Alloc(reader.ReadBytes(Marshal.SizeOf(typeof(DoorData))), GCHandleType.Pinned);
-                DoorData currentDoorData = (DoorData)Marshal.PtrToStructure(doorHandle.AddrOfPinnedObject(), typeof(DoorData));
-                doorHandle.Free();
-                reader.BaseStream.Seek(oldPos, SeekOrigin.Begin);
-
-                room.DoorList.Add(currentDoorData);
-            }
-
-            DrawRoomTiles(room);
-        }
-
-        private void DrawRoomTiles(Room room, int stateIndex = 0)
-        {
-            RoomState currentRoomState = room.StateInfo[stateIndex].StateData;
-
-            using BinaryReader reader = new BinaryReader(new MemoryStream(loadedROM));
-
-            // TESTING ONLY: Load level data from pointer
-            uint levelDataPtr = currentRoomState.LevelData.ToPointer();
-
-            //Lunar.LunarCompression.OpenFile(loadedROMPath, FileAccess.Read);
-            //byte[] decompressedLevelData = Lunar.LunarCompression.Decompress(levelDataPtr);
-            reader.BaseStream.Seek(levelDataPtr, SeekOrigin.Begin);
-            byte[] decompressedLevelData2 = Lunar.LunarCompression.DecompressNew(reader.ReadBytes(ushort.MaxValue), ushort.MaxValue);
-
-            using BinaryReader levelReader = new BinaryReader(new MemoryStream(decompressedLevelData2));
-            LevelData levelData;
-            levelData.Header = levelReader.ReadUInt16();
-            int tileCount = (levelData.Header / 2);
             int tileCountX = room.Header.Width * 16;
             int tileCountY = room.Header.Height * 16;
 
-            int tilesLoaded = 0;
-            levelData.TileLayer1 = new Tile[tileCountX, tileCountY];
-            for (int tileY = 0; tileY < tileCountY; ++tileY)
-            {
-                for (int tileX = 0; tileX < tileCountX; ++tileX)
-                {
-                    Tile t;
-                    t.BlockID = levelReader.ReadByte();
-                    t.PatternByte = levelReader.ReadByte();
-                    levelData.TileLayer1[tileX, tileY] = t;
-                    ++tilesLoaded;
-                }
-            }
+            // Set up the output area
+            levelEditorWidth = tileCountX * 16;
+            levelEditorHeight = tileCountY * 16;
 
-            levelData.TileLayer2 = new Tile[tileCountX, tileCountY];
-            for (int tileY = 0; tileY < tileCountY; ++tileY)
-            {
-                for (int tileX = 0; tileX < tileCountX; ++tileX)
-                {
-                    Tile t;
-                    t.BlockID = levelReader.ReadByte();
-                    t.PatternByte = levelReader.ReadByte();
-                    levelData.TileLayer2[tileX, tileY] = t;
-                    ++tilesLoaded;
-                }
-            }
+            SKImageInfo imageInfo = new SKImageInfo((int)levelEditorWidth, (int)levelEditorHeight);
+            using SKSurface surface = SKSurface.Create(imageInfo);
+            SKCanvas canvas = surface.Canvas;
+            canvas.Clear(SKColors.Transparent);
 
-            // Setup the render target as a bitmap
-            DrawingGroup tileDrawings = new DrawingGroup();
-
-            SolidColorBrush tile1Brush = new SolidColorBrush(Color.FromArgb(255, 255, 0, 0));
-            SolidColorBrush tile2Brush = new SolidColorBrush(Color.FromArgb(128, 0, 0, 255));
-            SolidColorBrush zeroTileBrush = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
-            SolidColorBrush backgroundBrush = new SolidColorBrush(Color.FromArgb(255, 0, 0, 0));
+            using SKPaint tilePaint = new SKPaint();
+            tilePaint.IsAntialias = false;
+            tilePaint.StrokeWidth = 1;
+            tilePaint.Style = SKPaintStyle.Fill;
 
 
             // Render the tiles
             // Layer 1
-            for (int tileY = 0; tileY < tileCountY; ++tileY)
+            if (layersToDraw.HasFlag(RoomLayers.TileLayer1))
             {
-                for (int tileX = 0; tileX < tileCountX; ++tileX)
+                for (int tileY = 0; tileY < tileCountY; ++tileY)
                 {
-                    Rect tileRect = new Rect(tileX * 16, tileY * 16, 16, 16);
+                    for (int tileX = 0; tileX < tileCountX; ++tileX)
+                    {
+                        SKRect tileRect = new SKRect(tileX * 16, tileY * 16, tileX * 16 + 16, tileY * 16 + 16);
+                        byte blockId = levelData.TileLayer1[tileX, tileY].BlockID;
 
-                    if (levelData.TileLayer1[tileX, tileY].BlockID == 0)
-                    {
-                        tileDrawings.Children.Add(new GeometryDrawing(zeroTileBrush, new Pen(zeroTileBrush, 0), new RectangleGeometry(tileRect)));
-                    }
-                    else
-                    {
-                        tileDrawings.Children.Add(new GeometryDrawing(tile1Brush, new Pen(tile1Brush, 0), new RectangleGeometry(tileRect)));
+                        tilePaint.Color = SKColor.Parse((blockId * 100).ToString("X6"));
+                        canvas.DrawRect(tileRect, tilePaint);
                     }
                 }
             }
 
             // Layer 2
-            for (int tileY = 0; tileY < tileCountY; ++tileY)
+            if (layersToDraw.HasFlag(RoomLayers.TileLayer2))
             {
-                for (int tileX = 0; tileX < tileCountX; ++tileX)
+                if (levelData.TileLayer2.Length > 0)
                 {
-                    Rect tileRect = new Rect(tileX * 16, tileY * 16, 16, 16);
+                    for (int tileY = 0; tileY < tileCountY; ++tileY)
+                    {
+                        for (int tileX = 0; tileX < tileCountX; ++tileX)
+                        {
+                            SKRect tileRect = new SKRect(tileX * 16, tileY * 16, tileX * 16 + 16, tileY * 16 + 16);
+                            byte blockId = levelData.TileLayer2[tileX, tileY].BlockID;
 
-                    if (levelData.TileLayer1[tileX, tileY].BlockID == 0)
-                    {
-                        tileDrawings.Children.Add(new GeometryDrawing(zeroTileBrush, new Pen(zeroTileBrush, 0), new RectangleGeometry(tileRect)));
-                    }
-                    else
-                    {
-                        tileDrawings.Children.Add(new GeometryDrawing(tile2Brush, new Pen(tile2Brush, 0), new RectangleGeometry(tileRect)));
+                            tilePaint.Color = SKColor.Parse($"7F{(blockId << 16).ToString("X6")}");
+                            canvas.DrawRect(tileRect, tilePaint);
+                        }
                     }
                 }
             }
 
-            levelEditorWidth = tileCountX * 16;
-            levelEditorHeight = tileCountY * 16;
-            roomDrawing = new DrawingImage(tileDrawings);
-            roomDrawing.Freeze();
+            using SKImage image = surface.Snapshot();
+            using SKData data = image.Encode(SKEncodedImageFormat.Png, 100);
+            using MemoryStream mStream = new MemoryStream(data.ToArray());
+            BitmapImage bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.StreamSource = mStream;
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.EndInit();
+
+            roomRenderOutput = bmp;
+            slider_Zoom_ValueChanged(this, new RoutedPropertyChangedEventArgs<double>(100, 100));
         }
 
+        private void UpdateVisibleLayersStatus()
+        {
+            StringBuilder statusText = new StringBuilder("Visible Layers: ");
+
+            if (layersToDraw.HasFlag(RoomLayers.TileLayer1))
+                statusText.Append("Layer1, ");
+
+            if (layersToDraw.HasFlag(RoomLayers.TileLayer2))
+                statusText.Append("Layer2, ");
+
+            if (layersToDraw.HasFlag(RoomLayers.BtsLayer))
+                statusText.Append("BTS, ");
+
+            if (layersToDraw.HasFlag(RoomLayers.Enemies))
+                statusText.Append("Enemies, ");
+
+            // Remove trailing comma and space
+            statusText.Replace(", ", "", statusText.Length - 2, 2);
+
+            // If no layers are visible
+            if (statusText.ToString() == "Visible Layers: ")
+                statusText.Append("None");
+
+            statustext_EnabledLayers.Text = statusText.ToString();
+        }
+
+        #region Hotkey Events
+        private void ToggleLayer1(object sender, RoutedEventArgs e)
+        {
+            layersToDraw ^= RoomLayers.TileLayer1;
+            DrawRoom(currentRoom, currentLevelData);
+            UpdateVisibleLayersStatus();
+        }
+
+        private void ToggleLayer2(object sender, RoutedEventArgs e)
+        {
+            layersToDraw ^= RoomLayers.TileLayer2;
+            DrawRoom(currentRoom, currentLevelData);
+            UpdateVisibleLayersStatus();
+        }
+
+        private void ToggleBtsLayer(object sender, RoutedEventArgs e)
+        {
+            layersToDraw ^= RoomLayers.BtsLayer;
+            DrawRoom(currentRoom, currentLevelData);
+            UpdateVisibleLayersStatus();
+        }
+
+        private void ToggleEnemyLayer(object sender, RoutedEventArgs e)
+        {
+            layersToDraw ^= RoomLayers.Enemies;
+            DrawRoom(currentRoom, currentLevelData);
+            UpdateVisibleLayersStatus();
+        }
+        #endregion
+
+        #region UI Events
         private void slider_Zoom_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             zoomScale = (e.NewValue / 100d);
@@ -305,21 +295,49 @@ namespace Torizo
             if (statustext_Zoom != null)
                 statustext_Zoom.Text = $"{e.NewValue}%";
 
-            if (drawrect_LevelEditor != null && drawrect_LevelEditor.Source != null)
+            if (roomEditor_OutputImage != null && roomEditor_OutputImage.Source != null)
             {
-                drawrect_LevelEditor.Width = levelEditorWidth * zoomScale;
-                drawrect_LevelEditor.Height = levelEditorHeight * zoomScale;
+                roomEditor_OutputImage.Width = levelEditorWidth * zoomScale;
+                roomEditor_OutputImage.Height = levelEditorHeight * zoomScale;
             }
+        }
+
+        private void roomSelect_ComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (uint.TryParse((string)((ComboBox)sender).SelectedItem, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out uint roomAddress))
+            {
+                currentRoom = Room.ReadRoom(roomAddress);
+                stateSelect_ComboBox.Items.Clear();
+                foreach (var state in currentRoom.StateInfo)
+                {
+                    stateSelect_ComboBox.Items.Add($"{currentRoom.StateInfo.IndexOf(state)}: {state.StateHeader.StateCode.ToString("X4")}");
+                }
+                stateSelect_ComboBox.SelectedIndex = 0;
+            }
+        }
+
+        private void stateSelect_ComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            int state = stateSelect_ComboBox.SelectedIndex;
+            if (state == -1)
+            {
+                return;
+            }
+
+            currentLevelData = Room.ReadLevel(currentRoom, state);
+            currentRoomState = state;
+            DrawRoom(currentRoom, currentLevelData);
         }
 
         private void timer_ScreenRefresh_Elapsed(object sender, ElapsedEventArgs args)
         {
-            drawrect_LevelEditor.Dispatcher.Invoke(new UpdateDrawRectDelegate(UpdateDrawRect));
+            roomEditor_OutputImage.Dispatcher.Invoke(new UpdateDrawRectDelegate(UpdateDrawRect));
         }
 
         private void UpdateDrawRect()
         {
-            drawrect_LevelEditor.Source = roomDrawing;
+            roomEditor_OutputImage.Source = roomRenderOutput;
         }
+        #endregion
     }
 }

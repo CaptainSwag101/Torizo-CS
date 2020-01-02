@@ -58,6 +58,11 @@ namespace Torizo.Lunar
             return LunarOpenFile(filename, filemode);
         }
 
+        public static bool CloseFile()
+        {
+            return LunarCloseFile();
+        }
+
         public unsafe static byte[] Decompress(uint startAddress, ushort maxDataSize = ushort.MaxValue)
         {
             byte[] decompressedData = new byte[maxDataSize];
@@ -353,6 +358,7 @@ namespace Torizo.Lunar
 
             // Check for repeated or increasing following bytes
             bool sigma = false;
+            bool forceNotSigma = false;
             int repeatLength = 0;
             while (true)
             {
@@ -365,9 +371,10 @@ namespace Torizo.Lunar
                 if (!sigma && compressableSequence[0] == next)
                 {
                     compressableSequence.Add(next);
+                    forceNotSigma = true;
                     ++repeatLength;
                 }
-                else if (compressableSequence[repeatLength] + 1 == next)
+                else if (!forceNotSigma && compressableSequence[repeatLength] + 1 == next)
                 {
                     sigma = true;
                     compressableSequence.Add(next);
