@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace Torizo.Palette
+namespace Torizo.Graphics
 {
     public struct SamusPaletteSet
     {

@@ -138,7 +138,7 @@ namespace Torizo
     public struct RoomState
     {
         public BankedAddress LevelData;
-        public byte GraphicSet;
+        public byte TilesetIndex;
         public byte MusicTrack;
         public byte MusicControl;
         public ushort FX1;             // pointer to room_fx1 [$83]
@@ -176,7 +176,7 @@ namespace Torizo
             using BinaryReader reader = new BinaryReader(new MemoryStream(MainWindow.LoadedROM));
 
             // read room header
-            reader.BaseStream.Seek(roomOffset + MainWindow.RomHeaderOffset, SeekOrigin.Begin);
+            reader.BaseStream.Seek(roomOffset + MainWindow.RomHeaderSize, SeekOrigin.Begin);
             GCHandle roomHeaderHandle = GCHandle.Alloc(reader.ReadBytes(Marshal.SizeOf(typeof(RoomHeader))), GCHandleType.Pinned);
             RoomHeader currentRoomHeader = (RoomHeader)Marshal.PtrToStructure(roomHeaderHandle.AddrOfPinnedObject(), typeof(RoomHeader));
             roomHeaderHandle.Free();
@@ -238,7 +238,7 @@ namespace Torizo
 
             // get the pointers from the current location
             room.DoorList = new List<DoorData>();
-            reader.BaseStream.Seek(doorListPointer.ToPointer() + MainWindow.RomHeaderOffset, SeekOrigin.Begin);
+            reader.BaseStream.Seek(doorListPointer.ToPointer() + MainWindow.RomHeaderSize, SeekOrigin.Begin);
             while (true)
             {
                 ushort doorPointer = reader.ReadUInt16();
@@ -253,7 +253,7 @@ namespace Torizo
 
                 // read door data from pointer
                 long oldPos = reader.BaseStream.Position;
-                reader.BaseStream.Seek(currentDoorPointer.ToPointer() + MainWindow.RomHeaderOffset, SeekOrigin.Begin);
+                reader.BaseStream.Seek(currentDoorPointer.ToPointer() + MainWindow.RomHeaderSize, SeekOrigin.Begin);
                 GCHandle doorHandle = GCHandle.Alloc(reader.ReadBytes(Marshal.SizeOf(typeof(DoorData))), GCHandleType.Pinned);
                 DoorData currentDoorData = (DoorData)Marshal.PtrToStructure(doorHandle.AddrOfPinnedObject(), typeof(DoorData));
                 doorHandle.Free();
@@ -276,7 +276,7 @@ namespace Torizo
 
             using BinaryReader reader = new BinaryReader(new MemoryStream(MainWindow.LoadedROM));
             reader.BaseStream.Seek(levelDataPtr, SeekOrigin.Begin);
-            byte[] decompressedLevelData = Lunar.LunarCompression.DecompressNew(reader.ReadBytes(ushort.MaxValue), ushort.MaxValue);
+            byte[] decompressedLevelData = Compression.DecompressData(reader.ReadBytes(ushort.MaxValue), ushort.MaxValue);
 
             using BinaryReader levelReader = new BinaryReader(new MemoryStream(decompressedLevelData));
             LevelData levelData;

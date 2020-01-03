@@ -6,11 +6,12 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Torizo.Lunar
+namespace Torizo
 {
-    public static class LunarCompression
+    public static class Compression
     {
-        internal const string lunarDllPath = "D:\\jpmac\\Documents\\GitHub\\Torizo\\Lunar Compress.dll";
+        //internal const string lunarDllPath = @"D:\jpmac\Documents\GitHub\Torizo\Lunar Compress.dll";
+        internal const string lunarDllPath = @"D:\jpmac\Documents\GitHub\Torizo\Lunar Compress x64.dll";
 
         private enum CompressionMethod
         {
@@ -23,7 +24,8 @@ namespace Torizo.Lunar
             MinusCopy
         }
 
-        #region Lunar Compress Functions
+
+        #region Lunar Compress Function Delegates
         [DllImport(lunarDllPath, CharSet = CharSet.Ansi)]
         private static extern bool LunarOpenFile(string filename, uint filemode);
 
@@ -37,7 +39,8 @@ namespace Torizo.Lunar
         private static extern unsafe uint LunarRecompress(byte* source, byte* destination, uint dataSize, uint maxDataSize, uint format, uint format2);
         #endregion
 
-        public static bool OpenFile(string filename, FileAccess mode)
+        #region Lunar Compress Functions
+        public static bool OpenFileLunar(string filename, FileAccess mode)
         {
             uint filemode;
             switch (mode)
@@ -58,18 +61,18 @@ namespace Torizo.Lunar
             return LunarOpenFile(filename, filemode);
         }
 
-        public static bool CloseFile()
+        public static bool CloseFileLunar()
         {
             return LunarCloseFile();
         }
 
-        public unsafe static byte[] Decompress(uint startAddress, ushort maxDataSize = ushort.MaxValue)
+        public unsafe static byte[] DecompressDataLunar(uint startAddress, uint maxDataSize = ushort.MaxValue + 1)
         {
             byte[] decompressedData = new byte[maxDataSize];
             int decompressedSize = 0;
             fixed (byte* decompPtr = decompressedData)
             {
-                decompressedSize = (int)LunarDecompress(decompPtr, startAddress, (uint)maxDataSize, 4, 0, (uint*)0);
+                decompressedSize = (int)LunarDecompress(decompPtr, startAddress, maxDataSize, 4, 0, (uint*)0);
             }
 
             byte[] result = new byte[decompressedSize];
@@ -77,7 +80,7 @@ namespace Torizo.Lunar
             return result;
         }
 
-        public unsafe static byte[] Recompress(byte[] originalData, ushort maxDataSize = ushort.MaxValue)
+        public unsafe static byte[] CompressDataLunar(byte[] originalData, uint maxDataSize = ushort.MaxValue + 1)
         {
             byte[] compressedData = new byte[maxDataSize];
             int compressedSize = 0; 
@@ -85,7 +88,7 @@ namespace Torizo.Lunar
             {
                 fixed (byte* origPtr = originalData)
                 {
-                    compressedSize = (int)LunarRecompress(origPtr, compPtr, (uint)originalData.Length, (uint)maxDataSize, 4, 0);
+                    compressedSize = (int)LunarRecompress(origPtr, compPtr, (uint)originalData.Length, maxDataSize, 4, 0);
                 }
             }
 
@@ -93,18 +96,20 @@ namespace Torizo.Lunar
             Array.Copy(compressedData, result, compressedSize);
             return result;
         }
+        #endregion
+
 
         // Information about Super Metroid's decompression routine obtained from https://www.romhacking.net/documents/243/
         // I intend to entirely replace Lunar Compress with my own code at some point,
         // since FuSoYa refuses to release his source code. FuSoYa my dude, you've done some incredible work,
         // but closed-source is the antithesis of what the game hacking/modding community should be about.
-        public static byte[] DecompressNew(byte[] source, int maxDataSize = int.MaxValue)
+        public static byte[] DecompressData(byte[] source, ushort maxDataSize = ushort.MaxValue)
         {
             List<byte> output = new List<byte>();
 
             using BinaryReader reader = new BinaryReader(new MemoryStream(source));
 
-            uint bytesWritten = 0;
+            ushort bytesWritten = 0;
             while (bytesWritten < maxDataSize)
             {
                 byte raw = reader.ReadByte();
@@ -243,7 +248,7 @@ namespace Torizo.Lunar
         // I intend to entirely replace Lunar Compress with my own code at some point,
         // since FuSoYa refuses to release his source code. FuSoYa my dude, you've done some incredible work,
         // but closed-source is the antithesis of what the game hacking/modding community should be about.
-        public static byte[] RecompressNew(byte[] originalData)
+        public static byte[] CompressData(byte[] originalData)
         {
             List<byte> result = new List<byte>();
 
@@ -346,6 +351,7 @@ namespace Torizo.Lunar
             return result.ToArray();
         }
 
+        #region Data Compression Methods
         private static (CompressionMethod Method, byte[] CompressableSequence, int Offset) compressWithByteOrSigmaFill(byte[] originalData, int bytesProcessed)
         {
             List<byte> compressableSequence = new List<byte>();
@@ -646,6 +652,7 @@ namespace Torizo.Lunar
 
             return compressed.ToArray();
         }
+        #endregion
 
 
     }

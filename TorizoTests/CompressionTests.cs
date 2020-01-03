@@ -1,14 +1,13 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Torizo.Lunar;
 using System;
 using System.Collections.Generic;
 using System.Text;
 using System.IO;
 
-namespace Torizo.Lunar.Tests
+namespace Torizo.Tests
 {
     [TestClass()]
-    public class LunarCompressionTests
+    public class CompressionTests
     {
         const string TestDataDir = @"TestData";
 
@@ -21,8 +20,8 @@ namespace Torizo.Lunar.Tests
             {
                 byte[] fileData = File.ReadAllBytes(file);
 
-                byte[] compressedData = LunarCompression.RecompressNew(fileData);
-                byte[] decompressedData = LunarCompression.DecompressNew(compressedData);
+                byte[] compressedData = Compression.CompressData(fileData);
+                byte[] decompressedData = Compression.DecompressData(compressedData);
 
                 Assert.AreEqual(fileData.Length, decompressedData.Length, $"Data length differs. Should be {fileData.Length} bytes long but was actually {decompressedData.Length} bytes long.");
 
