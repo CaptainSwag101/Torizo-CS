@@ -47,6 +47,7 @@ namespace Torizo
         private TilesetInfo currentTilesetInfo;
         private Tileset currentTileset;
         private SKBitmap currentTilesetBitmap;
+        private List<ushort[]> palettes = new List<ushort[]>();
         private LevelData currentLevelData;
         private RoomLayers layersToDraw = RoomLayers.TileLayer1 | RoomLayers.TileLayer2 | RoomLayers.BtsLayer | RoomLayers.Enemies;
 
@@ -82,6 +83,7 @@ namespace Torizo
             // This will sharpen the pixels when the system tries to place the image on a subpixel boundary,
             // but it has weird jagged edges and inconsistent scaling.
             //RenderOptions.SetBitmapScalingMode(roomEditor_OutputImage, BitmapScalingMode.NearestNeighbor);
+            //RenderOptions.SetBitmapScalingMode(tileset_OutputImage, BitmapScalingMode.NearestNeighbor);
 
 
             // Load the ROM image
@@ -242,10 +244,12 @@ namespace Torizo
             currentTilesetInfo = TilesetInfo.ReadTilesetInfo(3);
             currentTileset = Tileset.ReadTilesetFromInfo(currentTilesetInfo);
 
-            uint[] pcPalette = PaletteConverter.SnesPaletteToPcPalette(currentTileset.Palette, false);
-            uint[] pcPaletteMask = PaletteConverter.SnesPaletteToPcPalette(currentTileset.Palette, true);
-
-            
+            // Load global palette list
+            for (int i = 0; i < 9; ++i)
+            {
+                TilesetInfo info = TilesetInfo.ReadTilesetInfo(i);
+                palettes.Add(Tileset.ReadPalette(info.PaletteAddress.ToPointer()));
+            }
 
             // Combine common and unique tile graphics data
             //byte[] allTileData = new byte[currentTileset.TileGraphics.CommonTileGraphics.Length + currentTileset.TileGraphics.UniqueTileGraphics.Length];
@@ -261,71 +265,80 @@ namespace Torizo
             int tileCount = allTileData.Length / 32;
 
             // DISABLED UNTIL I CAN FIGURE OUT WHAT'S WRONG
-            /*
-            int tileDrawSize = 32;
-            SKImageInfo imageInfo = new SKImageInfo(tileCount * tileDrawSize / 2, tileDrawSize * 2);
+            
+            int tileDrawSize = 8;
+            int lineSize = 32;  // Number of blocks to draw per line in the block preview
+            SKImageInfo imageInfo = new SKImageInfo((tileCount * tileDrawSize * 2) / lineSize, (lineSize * tileDrawSize * 2));
             using SKSurface surface = SKSurface.Create(imageInfo);
             SKCanvas canvas = surface.Canvas;
             canvas.Clear(SKColors.Transparent);
-            
-            for (int blockNum = 0; blockNum < currentTileset.TileTables.CommonTileTable.Length; ++blockNum)
-            {
-                ushort[] blockEntry = Tileset.GetTileTableEntry(blockNum, currentTileset.TileTables.CommonTileTable);
-                int test = 0;
 
+            byte[] combinedTileTable = new byte[currentTileset.TileTables.CommonTileTable.Length + currentTileset.TileTables.UniqueTileTable.Length];
+            Array.Copy(currentTileset.TileTables.CommonTileTable, 0, combinedTileTable, 0, currentTileset.TileTables.CommonTileTable.Length);
+            Array.Copy(currentTileset.TileTables.UniqueTileTable, 0, combinedTileTable, currentTileset.TileTables.CommonTileTable.Length, currentTileset.TileTables.UniqueTileTable.Length);
+
+            for (int blockNum = 0; blockNum < combinedTileTable.Length; ++blockNum)
+            {
+                ushort[] blockEntry = Tileset.GetTileTableEntry(blockNum, combinedTileTable);
+
+                int lineNum = blockNum / lineSize;
                 for (int e = 0; e < 4; ++e)
                 {
-                    SKBitmap currentTileBitmap = new SKBitmap(8, 8);
+                    SKBitmap tileBitmap = new SKBitmap(8, 8);
                     ushort tileData = blockEntry[e];
                     ushort tileNum = (ushort)(tileData & 0x3FF);
                     bool xFlip = ((tileData & 0b0100000000000000) >> 14) == 1;
                     bool yFlip = ((tileData & 0b1000000000000000) >> 15) == 1;
-                    byte palette = (byte)((tileData & 0b0001110000000000) >> 10);
+                    byte paletteNum = (byte)((tileData & 0b0001110000000000) >> 10);
 
-                    for (byte pixelY = 0; pixelY < 8; ++pixelY)
+                    for (byte y = 0; y < 8; ++y)
                     {
-                        for (byte pixelX = 0; pixelX < 8; ++pixelX)
+                        for (byte x = 0; x < 8; ++x)
                         {
                             // Get palette color for pixel
-                            // TODO: LunarRender8x8 does something here with the tile number to actually make it correct
-                            // because as-is it's DEFINITELY not correct
-                            int trueOffset = (tileNum * 64) + (pixelY * 8) + pixelX;
+                            int trueOffset = (tileNum * 64) + (y * 8) + x;
                             uint colorIndex = allTilePixelData[trueOffset];
-                            uint pixelColor = pcPalette[colorIndex];
-                            currentTileBitmap.SetPixel(pixelX, pixelY, SKColor.Parse(pixelColor.ToString("X6")));
+
+                            // Get tile palette
+                            uint[] palette = PaletteConverter.SnesPaletteToPcPalette(currentTileset.Palette, false);
+                            uint[] paletteMask = PaletteConverter.SnesPaletteToPcPalette(currentTileset.Palette, true);
+                            
+                            SKColor pixelColor = SKColor.Parse(palette[colorIndex].ToString("X6"));
+
+                            if (xFlip && yFlip)
+                            {
+                                tileBitmap.SetPixel(7 - x, 7 - y, pixelColor);
+                            }
+                            else if (xFlip)
+                            {
+                                tileBitmap.SetPixel(7 - x, y, pixelColor);
+                            }
+                            else if (yFlip)
+                            {
+                                tileBitmap.SetPixel(x, 7 - y, pixelColor);
+                            }
+                            else
+                            {
+                                tileBitmap.SetPixel(x, y, pixelColor);
+                            }
                         }
                     }
 
                     int drawStartX, drawStartY, drawEndX, drawEndY;
-                    if (xFlip)
-                    {
-                        drawStartX = (blockNum + (e % 2) + 1) * tileDrawSize;
-                        drawEndX = (blockNum + (e % 2)) * tileDrawSize;
-                    }
-                    else
-                    {
-                        drawStartX = (blockNum + (e % 2)) * tileDrawSize;
-                        drawEndX = (blockNum + (e % 2) + 1) * tileDrawSize;
-                    }
+                    drawStartX = (((blockNum % lineSize) * 2) + (e % 2)) * tileDrawSize;
+                    drawEndX = (((blockNum % lineSize) * 2) + (e % 2) + 1) * tileDrawSize;
+                    drawStartY = ((lineNum * 2) + (e / 2)) * tileDrawSize;
+                    drawEndY = ((lineNum * 2) + (e / 2) + 1) * tileDrawSize;
 
-                    if (yFlip)
-                    {
-                        drawStartY = (e + 1) * tileDrawSize;
-                        drawEndY = e * tileDrawSize;
-                    }
-                    else
-                    {
-                        drawStartY = e * tileDrawSize;
-                        drawEndY = (e + 1) * tileDrawSize;
-                    }
-
-                    canvas.DrawBitmap(currentTileBitmap, new SKRect(drawStartX, drawStartY, drawEndX, drawEndY));
+                    canvas.DrawBitmap(tileBitmap, new SKRect(drawStartX, drawStartY, drawEndX, drawEndY));
                 }
             }
-            */
 
+
+            /*
+            // Draw the raw tileset image instead of block data
             int lineSize = 16;
-            int tileDrawSize = 16;
+            int tileDrawSize = 32;
             SKImageInfo imageInfo = new SKImageInfo(lineSize * tileDrawSize, (tileCount / lineSize) * tileDrawSize);
             using SKSurface surface = SKSurface.Create(imageInfo);
             SKCanvas canvas = surface.Canvas;
@@ -334,7 +347,7 @@ namespace Torizo
             for (int tileNum = 0; tileNum < tileCount; ++tileNum)
             {
                 int lineNum = tileNum / lineSize;
-                SKBitmap currentTileBitmap = new SKBitmap(8, 8);
+                SKBitmap tileBitmap = new SKBitmap(8, 8);
                 for (byte y = 0; y < 8; ++y)
                 {
                     for (byte x = 0; x < 8; ++x)
@@ -342,7 +355,7 @@ namespace Torizo
                         // Get palette color for pixel
                         uint colorIndex = allTilePixelData[(tileNum * 64) + (y * 8) + x];
                         uint pixelColor = pcPalette[colorIndex];
-                        currentTileBitmap.SetPixel(x, y, SKColor.Parse(pixelColor.ToString("X6")));
+                        tileBitmap.SetPixel(x, y, SKColor.Parse(pixelColor.ToString("X6")));
                     }
                 }
                 int drawStartX, drawEndX, drawStartY, drawEndY;
@@ -350,9 +363,18 @@ namespace Torizo
                 drawEndX = ((tileNum % lineSize) + 1) * tileDrawSize;
                 drawStartY = lineNum * tileDrawSize;
                 drawEndY = (lineNum + 1) * tileDrawSize;
-                canvas.DrawBitmap(currentTileBitmap, new SKRect(drawStartX, drawStartY, drawEndX, drawEndY));
+                canvas.DrawBitmap(tileBitmap, new SKRect(drawStartX, drawStartY, drawEndX, drawEndY));
+
+                //Mark each tile with its index for debugging assistance
+                SKTextBlobBuilder textBuilder = new SKTextBlobBuilder();
+                SKPaint fontPaint = new SKPaint();
+                fontPaint.Color = SKColors.Red;
+                fontPaint.StrokeWidth = 5;
+                fontPaint.Typeface = SKTypeface.FromFamilyName("Courier New", SKFontStyle.Bold);
+                fontPaint.TextSize = 14;
+                canvas.DrawText(tileNum.ToString(), drawStartX, drawEndY, fontPaint);
             }
-            
+            */
 
             // Copy data to output Image
             using SKImage image = surface.Snapshot();
@@ -367,32 +389,6 @@ namespace Torizo
             tileset_OutputImage.Source = bmp;
         }
         #endregion
-
-        private void UpdateVisibleLayersStatus()
-        {
-            StringBuilder statusText = new StringBuilder("Visible Layers: ");
-
-            if (layersToDraw.HasFlag(RoomLayers.TileLayer1))
-                statusText.Append("Layer1, ");
-
-            if (layersToDraw.HasFlag(RoomLayers.TileLayer2))
-                statusText.Append("Layer2, ");
-
-            if (layersToDraw.HasFlag(RoomLayers.BtsLayer))
-                statusText.Append("BTS, ");
-
-            if (layersToDraw.HasFlag(RoomLayers.Enemies))
-                statusText.Append("Enemies, ");
-
-            // Remove trailing comma and space
-            statusText.Replace(", ", "", statusText.Length - 2, 2);
-
-            // If no layers are visible
-            if (statusText.ToString() == "Visible Layers: ")
-                statusText.Append("None");
-
-            statustext_EnabledLayers.Text = statusText.ToString();
-        }
 
         #region Hotkey Events
         private void ToggleLayer1(object sender, RoutedEventArgs e)
@@ -425,6 +421,32 @@ namespace Torizo
         #endregion
 
         #region UI Events
+        private void UpdateVisibleLayersStatus()
+        {
+            StringBuilder statusText = new StringBuilder("Visible Layers: ");
+
+            if (layersToDraw.HasFlag(RoomLayers.TileLayer1))
+                statusText.Append("Layer1, ");
+
+            if (layersToDraw.HasFlag(RoomLayers.TileLayer2))
+                statusText.Append("Layer2, ");
+
+            if (layersToDraw.HasFlag(RoomLayers.BtsLayer))
+                statusText.Append("BTS, ");
+
+            if (layersToDraw.HasFlag(RoomLayers.Enemies))
+                statusText.Append("Enemies, ");
+
+            // Remove trailing comma and space
+            statusText.Replace(", ", "", statusText.Length - 2, 2);
+
+            // If no layers are visible
+            if (statusText.ToString() == "Visible Layers: ")
+                statusText.Append("None");
+
+            statustext_EnabledLayers.Text = statusText.ToString();
+        }
+
         private void slider_Zoom_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             zoomScale = (e.NewValue / 100d);

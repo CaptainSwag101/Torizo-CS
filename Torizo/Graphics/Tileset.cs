@@ -55,14 +55,7 @@ namespace Torizo.Graphics
 
             tileset.TileTables = (ReadCommonTileTable(), ReadUniqueTileTable(info.TableAddress.ToPointer()));
             tileset.TileGraphics = (ReadCommonTileGraphics(), ReadUniqueTileGraphics(info.TileAddress.ToPointer()));
-            byte[] paletteData = ReadPalette(info.PaletteAddress.ToPointer());
-
-            // Convert palette data from bytes to ushorts
-            tileset.Palette = new ushort[paletteData.Length / 2];
-            for (int i = 0; i < paletteData.Length; i += 2)
-            {
-                tileset.Palette[i / 2] = BitConverter.ToUInt16(new byte[] { paletteData[i], paletteData[i + 1] });
-            }
+            tileset.Palette = ReadPalette(info.PaletteAddress.ToPointer());
 
             return tileset;
         }
@@ -120,14 +113,21 @@ namespace Torizo.Graphics
             return decompressedGraphics;
         }
 
-        public static byte[] ReadPalette(uint paletteAddress)
+        public static ushort[] ReadPalette(uint paletteAddress)
         {
             uint offset = paletteAddress + MainWindow.RomHeaderSize;
             byte[] compressedPalette = new byte[ushort.MaxValue];
             Array.Copy(MainWindow.LoadedROM, offset, compressedPalette, 0, ushort.MaxValue);
             byte[] decompressedPalette = Compression.DecompressData(compressedPalette);
 
-            return decompressedPalette;
+            // Convert palette data from bytes to ushorts
+            ushort[] paletteData = new ushort[decompressedPalette.Length / 2];
+            for (int i = 0; i < paletteData.Length; i += 2)
+            {
+                paletteData[i / 2] = BitConverter.ToUInt16(new byte[] { decompressedPalette[i], decompressedPalette[i + 1] });
+            }
+
+            return paletteData;
         }
 
         public static byte[] IndexedGraphicsToPixelData(byte[] indexedGraphics, byte bitsPerPixel = 4)

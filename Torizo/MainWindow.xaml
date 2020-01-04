@@ -10,24 +10,37 @@
         <Menu VerticalAlignment="Top" Height="26">
 
         </Menu>
-        <DockPanel x:Name="dock_Main" Margin="0,26,0,28" LastChildFill="True">
-            <ScrollViewer DockPanel.Dock="Right" Width="200" MinWidth="200" VerticalScrollBarVisibility="Auto">
-                <Grid>
-                    <Label Content="Room:" Height="26" VerticalAlignment="Top" HorizontalAlignment="Left" Width="50" Margin="0,10,0,0"/>
-                    <ComboBox x:Name="roomSelect_ComboBox" Height="26" Margin="55,10,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="135"
+        <Grid Margin="0, 26, 0, 28">
+            <Grid.RowDefinitions>
+                <RowDefinition/>
+                <RowDefinition Height="200" MinHeight="200"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition MinWidth="538"/>
+                <ColumnDefinition Width="200" MinWidth="200"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel Name="dockPanel_1" Margin="0,0,0,5">
+                <ScrollViewer Grid.Row="1" Grid.Column="1" HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Visible">
+                    <Image x:Name="roomEditor_OutputImage" SnapsToDevicePixels="True" Stretch="Uniform"/>
+                </ScrollViewer>
+            </DockPanel>
+            <GridSplitter Height="5" VerticalAlignment="Bottom" HorizontalAlignment="Stretch" ResizeBehavior="CurrentAndNext"/>
+            <DockPanel Grid.Column="1" Width="200" MinWidth="200" Name="dockPanel_2">
+                <ScrollViewer  VerticalScrollBarVisibility="Auto">
+                    <Grid>
+                        <Label Content="Room:" Height="26" VerticalAlignment="Top" HorizontalAlignment="Left" Width="50" Margin="0,10,0,0"/>
+                        <ComboBox x:Name="roomSelect_ComboBox" Height="26" Margin="55,10,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="135"
                               SelectionChanged="roomSelect_ComboBox_SelectionChanged"/>
-                    <Label Content="State:" HorizontalAlignment="Left" Margin="0,41,0,0" VerticalAlignment="Top"/>
-                    <ComboBox x:Name="stateSelect_ComboBox" Height="26" Margin="55,41,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="135"
+                        <Label Content="State:" HorizontalAlignment="Left" Margin="0,41,0,0" VerticalAlignment="Top"/>
+                        <ComboBox x:Name="stateSelect_ComboBox" Height="26" Margin="55,41,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="135"
                               SelectionChanged="stateSelect_ComboBox_SelectionChanged"/>
-                </Grid>
-            </ScrollViewer>
-            <ScrollViewer DockPanel.Dock="Bottom" Height="256" MinHeight="256" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                    </Grid>
+                </ScrollViewer>
+            </DockPanel>
+            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                 <Image x:Name="tileset_OutputImage" SnapsToDevicePixels="True" Stretch="None"/>
             </ScrollViewer>
-            <ScrollViewer DockPanel.Dock="Top" HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Visible">
-                <Image x:Name="roomEditor_OutputImage" SnapsToDevicePixels="True" Stretch="Uniform"/>
-            </ScrollViewer>
-        </DockPanel>
+        </Grid>
         <StatusBar x:Name="status_Main" Height="28" VerticalAlignment="Bottom" >
             <Slider x:Name="slider_Zoom" Width="120" Minimum="25" Value="100" Maximum="300" LargeChange="25" SmallChange="1"
                     TickFrequency="25" TickPlacement="BottomRight" IsSnapToTickEnabled="True"
